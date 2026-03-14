@@ -1,18 +1,25 @@
 {
-  "name": "polymarket-trader-skills",
+  "name": "polymarket-trader",
   "version": "1.0.0",
-  "description": "24/7 Autonomous Trading System for Polymarket & Crypto",
+  "type": "module",
   "scripts": {
     "start": "bun trading-core/orchestrator/scripts/run.ts",
-    "health": "bun system/health-monitor/scripts/health.ts",
+    "monitor": "bun trading-core/market-monitor/scripts/monitor.ts",
+    "execute": "bun trading-core/trade-executor/scripts/execute.ts",
+    "risk": "bun trading-core/risk-controller/scripts/status.ts",
+    "positions": "bun trading-core/position-manager/scripts/positions.ts",
     "report": "bun trading-core/pnl-tracker/scripts/report.ts",
-    "monitor": "bun trading-core/market-monitor/scripts/monitor.ts"
+    "health": "bun system/health-monitor/scripts/health.ts",
+    "config": "bun system/config-manager/scripts/load.ts"
   },
   "dependencies": {
-    "hono": "^4.0.0",
-    "stripe": "^17.0.0"
+    "duckdb": "^1.0.0",
+    "ethers": "^6.11.0",
+    "ws": "^8.16.0",
+    "node-telegram-bot-api": "^0.64.0"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/ws": "^8.5.10",
+    "@types/node-telegram-bot-api": "^0.64.0"
   }
 }

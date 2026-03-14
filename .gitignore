@@ -1,18 +1,23 @@
 # Environment variables
 .env
 .env.local
-
-# Logs
-*.log
-trades.jsonl
-logs/
+.env.production
 
 # Database
+data/*.db
 *.db
-*.sqlite
+
+# Logs
+logs/*.log
+logs/*.jsonl
+*.log
 
 # Dependencies
 node_modules/
+
+# Build output
+dist/
+build/
 
 # OS files
 .DS_Store
@@ -23,7 +28,3 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
-
-# Build artifacts
-dist/
-build/
