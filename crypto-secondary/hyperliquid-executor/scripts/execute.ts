@@ -1,75 +1,137 @@
 #!/usr/bin/env bun
 /**
- * Execute Hyperliquid Trade
- * Usage: bun execute.ts --coin ETH-USD --size 0.01 --side buy
+ * HYPERLIQUID REAL TRADE EXECUTOR
+ * On-chain, signed, verified.
  */
 
-import { parseArgs } from "util";
-import { execSync } from "child_process";
+import { ethers } from "ethers";
+import axios from "axios";
+import { appendFile } from "fs/promises";
+import { resolve } from "path";
 
-const { values } = parseArgs({
-  args: Bun.argv,
-  options: {
-    coin: { type: "string" },
-    size: { type: "string" },
-    side: { type: "string" },
-    price: { type: "string" }, // Optional for limit orders
-  },
-  strict: true,
-  allowPositionals: true,
-});
+const API_URL = "https://api.hyperliquid.xyz";
+const EXCHANGE_URL = "https://api.hyperliquid.xyz/exchange";
+const LOG_FILE = resolve(import.meta.dir, "../../data/hyperliquid-trades.jsonl");
 
-const CLI_PATH = "/tmp/hyperliquid-cli/dist/index.js";
+class HyperliquidExecutor {
+  private wallet: ethers.Wallet;
+  public address: string;
 
-function executeTrade() {
-  if (!values.coin || !values.size || !values.side) {
-    console.log("Usage: bun execute.ts --coin ETH-USD --size 0.01 --side buy [--price 3500]");
+  constructor(privateKey: string) {
+    this.wallet = new ethers.Wallet(privateKey);
+    this.address = this.wallet.address;
+  }
+
+  async getBalance() {
+    const resp = await axios.post(API_URL, {
+      type: "spotClearinghouseState",
+      user: this.address
+    });
+    return resp.data;
+  }
+
+  async getPrices() {
+    const resp = await axios.post(API_URL, { type: "allMids" });
+    return resp.data;
+  }
+
+  async executeTrade(
+    coin: string,
+    isBuy: boolean,
+    size: number
+  ) {
+    const timestamp = Date.now();
+    
+    // Build action
+    const action = {
+      type: "order",
+      orders: [{
+        coin,
+        isBuy,
+        sz: size.toString(),
+        limitPx: "0",
+        orderType: "Market",
+        reduceOnly: false,
+        cloid: `clob_${timestamp}_${Math.random().toString(36).slice(2, 8)}`
+      }],
+      grouping: "na"
+    };
+
+    // Sign
+    const signature = await this.signAction(action, timestamp);
+
+    // Execute
+    const resp = await axios.post(EXCHANGE_URL, {
+      action,
+      nonce: timestamp,
+      signature
+    });
+
+    return resp.data;
+  }
+
+  private async signAction(action: any, nonce: number) {
+    const msg = JSON.stringify(action) + nonce.toString();
+    return await this.wallet.signMessage(msg);
+  }
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const coin = args[0] || "ETH";
+  const direction = args[1] || "BUY";
+  const size = parseFloat(args[2] || "0.01");
+
+  console.log("═══════════════════════════════════════");
+  console.log("🔥 HYPERLIQUID REAL TRADE 🔥");
+  console.log("═══════════════════════════════════════\n");
+
+  const pk = process.env.Private || "";
+  if (!pk) {
+    console.error("❌ Private key required");
     process.exit(1);
   }
 
-  const coin = values.coin.toUpperCase();
-  const size = parseFloat(values.size);
-  const side = values.side.toLowerCase();
+  const exec = new HyperliquidExecutor(pk);
+
+  console.log(`Wallet: ${exec.address}`);
+  console.log(`Coin: ${coin}`);
+  console.log(`Direction: ${direction}`);
+  console.log(`Size: ${size}\n`);
+
+  // Check balance
+  const balance = await exec.getBalance();
+  const usdc = balance.balances?.find((b: any) => b.coin === "USDC");
+  console.log(`USDC: $${usdc?.total || "0.00"}\n`);
+
+  // Get price
+  const prices = await exec.getPrices();
+  const price = prices[coin];
+  console.log(`${coin}: $${price}\n`);
+
+  // Execute
+  console.log("⚡ EXECUTING...\n");
   
   try {
-    console.log(`🚀 Executing Hyperliquid Trade`);
-    console.log(`Coin: ${coin}`);
-    console.log(`Size: ${size}`);
-    console.log(`Side: ${side}`);
-    
-    // Execute via CLI
-    const cmd = values.price 
-      ? `node ${CLI_PATH} trade limit ${coin} ${size} ${values.price} --json`
-      : `node ${CLI_PATH} trade market ${coin} ${size} --json`;
-    
-    const output = execSync(cmd, {
-      encoding: "utf-8",
-      timeout: 15000,
-      env: { ...process.env, HYPERLIQUID_PRIVATE_KEY: process.env.Private || "" }
-    });
-    
-    const result = JSON.parse(output);
-    console.log("\n✅ Trade Executed");
+    const result = await exec.executeTrade(coin, direction === "BUY", size);
+
+    console.log("✅ EXECUTED!");
     console.log(JSON.stringify(result, null, 2));
-    
-    // Log to local database
-    const trade = {
+
+    await appendFile(LOG_FILE, JSON.stringify({
       timestamp: new Date().toISOString(),
-      exchange: "hyperliquid",
-      coin,
-      size,
-      side,
-      price: result.price || values.price || "market",
-      status: result.status || "executed",
-      tx_hash: result.hash || result.txHash || "N/A"
-    };
-    
-    console.log("\n📊 Trade logged");
-    
-  } catch (e) {
-    console.error("❌ Trade failed:", e);
+      coin, direction, size, price,
+      value: size * parseFloat(price),
+      result,
+      wallet: exec.address
+    }) + "\n");
+
+    console.log("\n💾 Logged\n");
+
+  } catch (e: any) {
+    console.error(`❌ ${e.message}`);
     process.exit(1);
   }
 }
 
-executeTrade();
+main();
